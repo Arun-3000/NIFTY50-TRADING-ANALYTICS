@@ -930,5 +930,4 @@ with tab3:
 
         st.info(
             "No stocks currently satisfy the configured "
-            "breakout conditions, or the scanner returned "
-            "no
+            "breakout conditions, or the scanner returned no results."
