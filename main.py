@@ -1,18 +1,22 @@
+# ============================================================
+# NIFTY 50 COMPLETE TRADING ANALYTICS DASHBOARD
+# ============================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
 from plotly.subplots import make_subplots
-from datetime import date
+from datetime import datetime
 
 from data_fetcher import get_stock_data, get_nifty50_symbols
 from indicators import add_all_indicators, flag_breakout
 
 
-# =====================================================
+# ============================================================
 # PAGE CONFIGURATION
-# =====================================================
+# ============================================================
 
 st.set_page_config(
     page_title="NIFTY 50 Complete Trading Analytics",
@@ -21,35 +25,57 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("📈 NIFTY 50 Complete Trading Analytics")
-st.caption(
-    "Historical Stock Data | Technical Analysis | "
-    "Market Scanner | Data Export"
-)
 
-
-# =====================================================
-# CUSTOM STYLE
-# =====================================================
+# ============================================================
+# CUSTOM CSS
+# ============================================================
 
 st.markdown("""
 <style>
+
 [data-testid="stMetric"] {
     background-color: rgba(128,128,128,0.08);
-    padding: 15px;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(128,128,128,0.15);
+}
+
+.stTabs [data-baseweb="tab"] {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+[data-testid="stDataFrame"] {
     border-radius: 10px;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
 
-# =====================================================
-# SIDEBAR
-# =====================================================
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title("📈 NIFTY 50 Complete Trading Analytics")
+
+st.caption(
+    "Complete Historical Market Database | "
+    "Technical Analysis | Market Scanner | "
+    "Stock Performance | Data Export"
+)
+
+
+# ============================================================
+# SIDEBAR CONTROLS
+# ============================================================
 
 st.sidebar.title("⚙️ Dashboard Controls")
 
-if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+if st.sidebar.button(
+    "🔄 Refresh All Data",
+    use_container_width=True
+):
     st.cache_data.clear()
     st.rerun()
 
@@ -64,20 +90,41 @@ show_raw_data = st.sidebar.checkbox(
 )
 
 show_indicators = st.sidebar.checkbox(
-    "Show technical indicators",
+    "Show all technical indicators",
     value=True
 )
 
+show_data_quality = st.sidebar.checkbox(
+    "Show data quality report",
+    value=True
+)
 
-# =====================================================
-# LOAD STOCK DATA
-# =====================================================
+rows_per_page = st.sidebar.selectbox(
+    "Historical table rows per page",
+    [100, 250, 500, 1000, 5000],
+    index=2
+)
+
+st.sidebar.divider()
+
+st.sidebar.info(
+    "Data coverage depends on the configured market data provider."
+)
+
+
+# ============================================================
+# DATA LOADING
+# ============================================================
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_stock_data(symbol):
 
     try:
-        df = get_stock_data(symbol, period="max")
+
+        df = get_stock_data(
+            symbol,
+            period="max"
+        )
 
         if df is None or df.empty:
             return None
@@ -101,33 +148,45 @@ def load_stock_data(symbol):
 
         df = add_all_indicators(df)
 
+        df = df.replace(
+            [np.inf, -np.inf],
+            np.nan
+        )
+
         return df
 
-    except Exception as e:
+    except Exception:
         return None
 
 
-# =====================================================
-# GET STOCK SYMBOLS
-# =====================================================
+# ============================================================
+# LOAD SYMBOLS
+# ============================================================
 
 symbols = get_nifty50_symbols()
 
 if not symbols:
-    st.error("No stock symbols were found.")
+
+    st.error("No stock symbols found.")
+
     st.stop()
 
-st.sidebar.metric("Stocks in configured list", len(symbols))
+st.sidebar.metric(
+    "Configured Stocks",
+    len(symbols)
+)
 
 
-# =====================================================
+# ============================================================
 # FETCH ALL STOCKS
-# =====================================================
+# ============================================================
 
 stock_data = {}
+
 failed_stocks = []
 
 progress = st.progress(0)
+
 status = st.empty()
 
 for i, symbol in enumerate(symbols):
@@ -139,26 +198,36 @@ for i, symbol in enumerate(symbols):
     df = load_stock_data(symbol)
 
     if df is not None and not df.empty:
+
         stock_data[symbol] = df
+
     else:
+
         failed_stocks.append(symbol)
 
-    progress.progress((i + 1) / len(symbols))
+    progress.progress(
+        (i + 1) / len(symbols)
+    )
 
 progress.empty()
+
 status.empty()
 
+
 if not stock_data:
+
     st.error(
         "No stock data could be loaded. "
-        "Check data_fetcher.py and your internet connection."
+        "Check data_fetcher.py, indicators.py, "
+        "and your data source."
     )
+
     st.stop()
 
 
-# =====================================================
-# CREATE LATEST STOCK SUMMARY
-# =====================================================
+# ============================================================
+# CREATE MASTER LATEST SUMMARY
+# ============================================================
 
 summary = []
 
@@ -168,94 +237,201 @@ for symbol, df in stock_data.items():
 
     previous_close = (
         df["Close"].iloc[-2]
-        if len(df) > 1 else latest["Close"]
+        if len(df) > 1
+        else latest["Close"]
     )
 
-    change = latest["Close"] - previous_close
+    change = (
+        latest["Close"] - previous_close
+    )
 
     change_percent = (
-        (change / previous_close) * 100
-        if previous_close else 0
+        change / previous_close * 100
+        if pd.notna(previous_close)
+        and previous_close != 0
+        else np.nan
     )
 
     summary.append({
+
         "Symbol": symbol,
+
         "Date": str(df.index[-1].date()),
+
         "Close": latest.get("Close", np.nan),
+
         "Change": change,
+
         "Change %": change_percent,
+
         "Open": latest.get("Open", np.nan),
+
         "High": latest.get("High", np.nan),
+
         "Low": latest.get("Low", np.nan),
+
         "Volume": latest.get("Volume", np.nan),
+
         "SMA 20": latest.get("SMA_20", np.nan),
+
         "SMA 50": latest.get("SMA_50", np.nan),
+
         "SMA 200": latest.get("SMA_200", np.nan),
+
         "RSI": latest.get("RSI", np.nan),
-        "Volume Ratio": latest.get("Volume_Ratio", np.nan)
+
+        "Volume Ratio": latest.get(
+            "Volume_Ratio",
+            np.nan
+        ),
+
+        "MACD": latest.get("MACD", np.nan),
+
+        "MACD Signal": latest.get(
+            "MACD_Signal",
+            np.nan
+        )
+
     })
+
 
 summary_df = pd.DataFrame(summary)
 
-
-# =====================================================
-# TOP LEVEL METRICS
-# =====================================================
-
-total_stocks = len(stock_data)
-
-advancing = int((summary_df["Change"] > 0).sum())
-declining = int((summary_df["Change"] < 0).sum())
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Stocks Loaded", total_stocks)
-col2.metric("Advancing", advancing)
-col3.metric("Declining", declining)
-col4.metric(
-    "Average Change",
-    f"{summary_df['Change %'].mean():.2f}%"
+summary_df = summary_df.replace(
+    [np.inf, -np.inf],
+    np.nan
 )
 
 
-# =====================================================
+# ============================================================
+# MARKET METRICS
+# ============================================================
+
+total_stocks = len(stock_data)
+
+advancing = int(
+    (summary_df["Change"] > 0).sum()
+)
+
+declining = int(
+    (summary_df["Change"] < 0).sum()
+)
+
+unchanged = int(
+    (summary_df["Change"] == 0).sum()
+)
+
+average_change = summary_df["Change %"].mean()
+
+total_volume = summary_df["Volume"].sum()
+
+
+# ============================================================
+# TOP DASHBOARD METRICS
+# ============================================================
+
+st.subheader("📊 Market Overview")
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric(
+    "Stocks Loaded",
+    total_stocks
+)
+
+col2.metric(
+    "Advancing",
+    advancing
+)
+
+col3.metric(
+    "Declining",
+    declining
+)
+
+col4.metric(
+    "Average Change",
+    f"{average_change:.2f}%"
+    if pd.notna(average_change)
+    else "N/A"
+)
+
+col5, col6, col7, col8 = st.columns(4)
+
+col5.metric(
+    "Unchanged",
+    unchanged
+)
+
+col6.metric(
+    "Market Breadth",
+    f"{advancing}/{total_stocks}"
+)
+
+col7.metric(
+    "Total Available Volume",
+    f"{total_volume:,.0f}"
+)
+
+col8.metric(
+    "Failed Data Sources",
+    len(failed_stocks)
+)
+
+
+# ============================================================
 # DASHBOARD TABS
-# =====================================================
+# ============================================================
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
+
     "📊 Market Overview",
+
     "🔍 Individual Stock",
+
     "🚀 Breakout Scanner",
-    "📚 Historical Data",
-    "⬇️ Download Data"
+
+    "📚 Historical Database",
+
+    "⬇️ Complete Data Export"
+
 ])
 
 
-# =====================================================
+# ============================================================
 # TAB 1: MARKET OVERVIEW
-# =====================================================
+# ============================================================
 
 with tab1:
 
-    st.header("All Available NIFTY 50 Stock Data")
+    st.header("Complete NIFTY 50 Market Overview")
 
     search = st.text_input(
-        "Search stock symbol",
-        placeholder="Example: RELIANCE"
+        "🔎 Search stock",
+        placeholder="RELIANCE, TCS, SBIN..."
     )
 
     filtered_summary = summary_df.copy()
 
     if search:
+
         filtered_summary = filtered_summary[
             filtered_summary["Symbol"].str.contains(
-                search, case=False, na=False
+                search,
+                case=False,
+                na=False
             )
         ]
 
     sort_column = st.selectbox(
         "Sort stocks by",
-        ["Change %", "Close", "Volume", "RSI", "Symbol"]
+        [
+            "Change %",
+            "Close",
+            "Volume",
+            "RSI",
+            "Symbol"
+        ]
     )
 
     ascending = st.checkbox(
@@ -265,8 +441,11 @@ with tab1:
 
     filtered_summary = filtered_summary.sort_values(
         sort_column,
-        ascending=ascending
+        ascending=ascending,
+        na_position="last"
     )
+
+    st.subheader("All Available Stock Statistics")
 
     st.dataframe(
         filtered_summary,
@@ -276,15 +455,56 @@ with tab1:
     )
 
     st.download_button(
-        "Download All Stock Summary CSV",
+        "⬇️ Download Market Summary CSV",
         data=filtered_summary.to_csv(index=False),
-        file_name="nifty50_stock_summary.csv",
+        file_name="NIFTY50_MARKET_SUMMARY.csv",
         mime="text/csv"
     )
 
+    # --------------------------------------------------------
+    # TOP GAINERS
+    # --------------------------------------------------------
+
+    st.subheader("📈 Top Gainers")
+
+    gainers = summary_df.nlargest(
+        10,
+        "Change %"
+    )
+
+    st.dataframe(
+        gainers,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # --------------------------------------------------------
+    # TOP DECLINERS
+    # --------------------------------------------------------
+
+    st.subheader("📉 Top Decliners")
+
+    decliners = summary_df.nsmallest(
+        10,
+        "Change %"
+    )
+
+    st.dataframe(
+        decliners,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # --------------------------------------------------------
+    # PRICE CHANGE CHART
+    # --------------------------------------------------------
+
     st.subheader("Stock Price Change")
 
-    chart_df = summary_df.sort_values("Change %")
+    chart_df = summary_df.sort_values(
+        "Change %",
+        na_position="last"
+    )
 
     fig = go.Figure()
 
@@ -300,16 +520,82 @@ with tab1:
         title="Latest Available Price Change",
         xaxis_title="Stock",
         yaxis_title="Change (%)",
-        height=500,
-        xaxis_tickangle=-60
+        height=550,
+        xaxis_tickangle=-60,
+        hovermode="x unified"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # --------------------------------------------------------
+    # PERFORMANCE DISTRIBUTION
+    # --------------------------------------------------------
+
+    st.subheader("Market Performance Distribution")
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Histogram(
+            x=summary_df["Change %"].dropna(),
+            nbinsx=25,
+            name="Returns"
+        )
+    )
+
+    fig.update_layout(
+        title="Distribution of Latest Available Returns",
+        xaxis_title="Change (%)",
+        yaxis_title="Number of Stocks",
+        height=450
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # --------------------------------------------------------
+    # VOLUME ANALYSIS
+    # --------------------------------------------------------
+
+    st.subheader("Volume Comparison")
+
+    volume_df = summary_df.sort_values(
+        "Volume",
+        ascending=False
+    ).head(20)
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Bar(
+            x=volume_df["Symbol"],
+            y=volume_df["Volume"],
+            name="Volume"
+        )
+    )
+
+    fig.update_layout(
+        title="Top 20 Stocks by Latest Available Volume",
+        xaxis_title="Stock",
+        yaxis_title="Volume",
+        height=450,
+        xaxis_tickangle=-45
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
 
-# =====================================================
+# ============================================================
 # TAB 2: INDIVIDUAL STOCK ANALYSIS
-# =====================================================
+# ============================================================
 
 with tab2:
 
@@ -324,9 +610,8 @@ with tab2:
 
     st.subheader(selected_symbol)
 
-    # Date filter
-
     min_date = df.index.min().date()
+
     max_date = df.index.max().date()
 
     date_range = st.date_input(
@@ -336,20 +621,29 @@ with tab2:
         max_value=max_date
     )
 
-    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+    if (
+        isinstance(date_range, (tuple, list))
+        and len(date_range) == 2
+    ):
 
         start_date, end_date = date_range
 
         filtered_df = df.loc[
-            (df.index.date >= start_date) &
+            (df.index.date >= start_date)
+            &
             (df.index.date <= end_date)
         ].copy()
 
     else:
+
         filtered_df = df.copy()
 
     if filtered_df.empty:
-        st.warning("No records available for this date range.")
+
+        st.warning(
+            "No records available for this date range."
+        )
+
     else:
 
         latest = filtered_df.iloc[-1]
@@ -378,20 +672,24 @@ with tab2:
         c4.metric(
             "Volume",
             f"{latest['Volume']:,.0f}"
+            if pd.notna(latest.get("Volume"))
+            else "N/A"
         )
 
-        # Candlestick and indicator charts
+        # ----------------------------------------------------
+        # PRICE, RSI, VOLUME CHART
+        # ----------------------------------------------------
 
         fig = make_subplots(
             rows=3,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.06,
+            vertical_spacing=0.05,
             row_heights=[0.60, 0.20, 0.20],
             subplot_titles=(
                 "Price and Moving Averages",
-                "RSI",
-                "Volume"
+                "Relative Strength Index",
+                "Trading Volume"
             )
         )
 
@@ -456,18 +754,20 @@ with tab2:
                 col=1
             )
 
-        fig.add_trace(
-            go.Bar(
-                x=filtered_df.index,
-                y=filtered_df["Volume"],
-                name="Volume"
-            ),
-            row=3,
-            col=1
-        )
+        if "Volume" in filtered_df.columns:
+
+            fig.add_trace(
+                go.Bar(
+                    x=filtered_df.index,
+                    y=filtered_df["Volume"],
+                    name="Volume"
+                ),
+                row=3,
+                col=1
+            )
 
         fig.update_layout(
-            height=850,
+            height=900,
             xaxis_rangeslider_visible=False,
             hovermode="x unified"
         )
@@ -477,31 +777,71 @@ with tab2:
             use_container_width=True
         )
 
+        # ----------------------------------------------------
+        # MACD CHART
+        # ----------------------------------------------------
+
+        if "MACD" in filtered_df.columns:
+
+            st.subheader("MACD Analysis")
+
+            fig = go.Figure()
+
+            fig.add_trace(
+                go.Scatter(
+                    x=filtered_df.index,
+                    y=filtered_df["MACD"],
+                    name="MACD"
+                )
+            )
+
+            if "MACD_Signal" in filtered_df.columns:
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=filtered_df.index,
+                        y=filtered_df["MACD_Signal"],
+                        name="MACD Signal"
+                    )
+                )
+
+            fig.update_layout(
+                height=400,
+                title="MACD and Signal Line"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        # ----------------------------------------------------
+        # COMPLETE INDICATOR TABLE
+        # ----------------------------------------------------
+
         st.subheader("Latest Technical Indicators")
 
-        indicator_columns = [
-            c for c in [
-                "Open", "High", "Low", "Close",
-                "Volume", "SMA_20", "SMA_50",
-                "SMA_200", "RSI", "Volume_Ratio",
-                "MACD", "MACD_Signal"
-            ]
-            if c in filtered_df.columns
-        ]
-
         st.dataframe(
-            filtered_df[indicator_columns].tail(20),
-            use_container_width=True
+            filtered_df.tail(50),
+            use_container_width=True,
+            height=500
+        )
+
+        st.download_button(
+            "⬇️ Download Selected Stock History",
+            data=filtered_df.to_csv(index=True),
+            file_name=f"{selected_symbol}_analysis.csv",
+            mime="text/csv"
         )
 
 
-# =====================================================
+# ============================================================
 # TAB 3: BREAKOUT SCANNER
-# =====================================================
+# ============================================================
 
 with tab3:
 
-    st.header("Technical Breakout Scanner")
+    st.header("🚀 Technical Breakout Scanner")
 
     breakout_results = []
 
@@ -516,21 +856,62 @@ with tab3:
                 latest = df.iloc[-1]
 
                 breakout_results.append({
+
                     "Symbol": symbol,
-                    "Close": latest["Close"],
-                    "SMA 50": latest.get("SMA_50", np.nan),
-                    "RSI": latest.get("RSI", np.nan),
+
+                    "Date": str(df.index[-1].date()),
+
+                    "Close": latest.get(
+                        "Close",
+                        np.nan
+                    ),
+
+                    "SMA 20": latest.get(
+                        "SMA_20",
+                        np.nan
+                    ),
+
+                    "SMA 50": latest.get(
+                        "SMA_50",
+                        np.nan
+                    ),
+
+                    "SMA 200": latest.get(
+                        "SMA_200",
+                        np.nan
+                    ),
+
+                    "RSI": latest.get(
+                        "RSI",
+                        np.nan
+                    ),
+
                     "Volume Ratio": latest.get(
-                        "Volume_Ratio", np.nan
+                        "Volume_Ratio",
+                        np.nan
+                    ),
+
+                    "MACD": latest.get(
+                        "MACD",
+                        np.nan
                     )
+
                 })
 
         except Exception:
+
             continue
 
     if breakout_results:
 
-        breakout_df = pd.DataFrame(breakout_results)
+        breakout_df = pd.DataFrame(
+            breakout_results
+        )
+
+        st.metric(
+            "Stocks Matching Breakout Conditions",
+            len(breakout_df)
+        )
 
         st.dataframe(
             breakout_df,
@@ -539,9 +920,9 @@ with tab3:
         )
 
         st.download_button(
-            "Download Breakout Stocks",
+            "⬇️ Download Breakout Scanner CSV",
             data=breakout_df.to_csv(index=False),
-            file_name="breakout_stocks.csv",
+            file_name="NIFTY50_BREAKOUT_SCANNER.csv",
             mime="text/csv"
         )
 
@@ -549,139 +930,5 @@ with tab3:
 
         st.info(
             "No stocks currently satisfy the configured "
-            "breakout conditions, or the scanner returned no results."
-        )
-
-
-# =====================================================
-# TAB 4: COMPLETE HISTORICAL DATA
-# =====================================================
-
-with tab4:
-
-    st.header("Historical Market Database")
-
-    historical_symbol = st.selectbox(
-        "Choose stock for historical records",
-        list(stock_data.keys()),
-        key="historical_symbol"
-    )
-
-    history_df = stock_data[historical_symbol].copy()
-
-    st.write(
-        f"Available records: {len(history_df):,}"
-    )
-
-    st.write(
-        f"First available date: {history_df.index.min().date()}"
-    )
-
-    st.write(
-        f"Last available date: {history_df.index.max().date()}"
-    )
-
-    if show_all_history:
-
-        display_history = history_df
-    else:
-
-        display_history = history_df.tail(100)
-
-    st.dataframe(
-        display_history,
-        use_container_width=True,
-        height=600
-    )
-
-    st.download_button(
-        "Download Complete Historical Data",
-        data=history_df.to_csv(index=True),
-        file_name=f"{historical_symbol}_historical_data.csv",
-        mime="text/csv"
-    )
-
-
-# =====================================================
-# TAB 5: DOWNLOAD ALL DATA
-# =====================================================
-
-with tab5:
-
-    st.header("Export Complete Available Stock Database")
-
-    st.write(
-        "Combine the historical records loaded for all available "
-        "stocks into one downloadable dataset."
-    )
-
-    all_records = []
-
-    for symbol, df in stock_data.items():
-
-        export_df = df.copy()
-
-        export_df["Symbol"] = symbol
-
-        export_df.index.name = "Date"
-
-        export_df = export_df.reset_index()
-
-        all_records.append(export_df)
-
-    if all_records:
-
-        master_df = pd.concat(
-            all_records,
-            ignore_index=True
-        )
-
-        st.metric(
-            "Total Historical Records",
-            f"{len(master_df):,}"
-        )
-
-        st.metric(
-            "Stocks Included",
-            master_df["Symbol"].nunique()
-        )
-
-        st.subheader("Master Dataset Preview")
-
-        st.dataframe(
-            master_df.head(100),
-            use_container_width=True
-        )
-
-        st.download_button(
-            "⬇️ Download Complete Master CSV",
-            data=master_df.to_csv(index=False),
-            file_name="NIFTY50_COMPLETE_HISTORICAL_DATA.csv",
-            mime="text/csv"
-        )
-
-        st.download_button(
-            "⬇️ Download All Stock Summary",
-            data=summary_df.to_csv(index=False),
-            file_name="NIFTY50_LATEST_SUMMARY.csv",
-            mime="text/csv"
-        )
-
-    if failed_stocks:
-
-        with st.expander("Stocks whose data could not be loaded"):
-
-            st.write(failed_stocks)
-
-
-# =====================================================
-# FOOTER
-# =====================================================
-
-st.divider()
-
-st.caption(
-    "NIFTY 50 Trading Analytics | "
-    "Historical data and technical indicators for research. "
-    "Market data availability depends on the source."
-)
+            "breakout conditions, or the scanner returned "
+            "no
