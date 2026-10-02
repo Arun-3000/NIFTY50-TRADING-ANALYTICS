@@ -927,7 +927,4 @@ with tab3:
         )
 
     else:
-
-        st.info(
-            "No stocks currently satisfy the configured "
-            "breakout conditions, or the scanner returned no results."
+        st.info("No stocks currently satisfy the configured breakout conditions, or the scanner returned no results.")
